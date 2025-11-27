@@ -33,5 +33,47 @@ func NewRouter(log zerolog.Logger, scrapers *scraper.Manager) *chi.Mux {
 		})
 	})
 
+	r.Get("/api/search", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("q")
+		if query == "" {
+			writeError(w, http.StatusBadRequest, "MISSING_QUERY", "query parameter 'q' is required")
+			return
+		}
+
+		source := r.URL.Query().Get("source")
+		if source == "" {
+			source = "mangadex"
+		}
+
+		results, err := scrapers.Search(r.Context(), source, query)
+		if err != nil {
+			log.Error().Err(err).Str("source", source).Str("query", query).Msg("search failed")
+
+			if err.Error() == "provider not found: "+source {
+				writeError(w, http.StatusBadRequest, "UNKNOWN_SOURCE", "source '"+source+"' not found")
+				return
+			}
+
+			writeError(w, http.StatusInternalServerError, "SEARCH_FAILED", "failed to search manga")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": results,
+		})
+	})
+
 	return r
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
 }
