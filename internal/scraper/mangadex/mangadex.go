@@ -78,8 +78,38 @@ func (m *MangaDex) Search(ctx context.Context, query string) ([]scraper.MangaRes
 
 // GetManga fetches full details for a manga.
 func (m *MangaDex) GetManga(ctx context.Context, id string) (*scraper.Manga, error) {
-	// TODO: Implement in next task
-	return nil, fmt.Errorf("not implemented")
+	endpoint := fmt.Sprintf("%s/manga/%s?includes[]=cover_art&includes[]=author&includes[]=artist", baseURL, url.PathEscape(id))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, scraper.ErrMangaNotFound
+	}
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, scraper.ErrRateLimited
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var response mangaResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return m.convertManga(response.Data), nil
 }
 
 // GetChapters fetches all chapters for a manga.
@@ -111,6 +141,97 @@ func (m *MangaDex) convertSearchResults(resp searchResponse) []scraper.MangaResu
 	}
 
 	return results
+}
+
+// convertManga transforms API manga data to scraper.Manga.
+func (m *MangaDex) convertManga(data mangaData) *scraper.Manga {
+	title := m.getTitle(data.Attributes.Title)
+	description := m.getDescription(data.Attributes.Description)
+	coverURL := m.getCoverURL(data.ID, data.Relationships)
+	author, artist := m.getStaff(data.Relationships)
+	genres, tags := m.getTags(data.Attributes.Tags)
+
+	return &scraper.Manga{
+		ID:          data.ID,
+		Title:       title,
+		Description: description,
+		CoverURL:    coverURL,
+		Status:      data.Attributes.Status,
+		Author:      author,
+		Artist:      artist,
+		Genres:      genres,
+		Tags:        tags,
+		URL:         fmt.Sprintf("https://mangadex.org/title/%s", data.ID),
+	}
+}
+
+// getDescription extracts description based on language preference.
+func (m *MangaDex) getDescription(descriptions map[string]string) string {
+	if desc, ok := descriptions[m.language]; ok && desc != "" {
+		return desc
+	}
+
+	if desc, ok := descriptions["en"]; ok && desc != "" {
+		return desc
+	}
+
+	for _, desc := range descriptions {
+		if desc != "" {
+			return desc
+		}
+	}
+
+	return ""
+}
+
+// getStaff extracts author and artist from relationships.
+func (m *MangaDex) getStaff(relationships []relationship) (author, artist string) {
+	for _, rel := range relationships {
+		if rel.Attributes == nil {
+			continue
+		}
+
+		name, _ := rel.Attributes["name"].(string)
+		if name == "" {
+			continue
+		}
+
+		switch rel.Type {
+		case "author":
+			if author == "" {
+				author = name
+			}
+		case "artist":
+			if artist == "" {
+				artist = name
+			}
+		}
+	}
+
+	return author, artist
+}
+
+// getTags extracts genres and tags from tag data.
+func (m *MangaDex) getTags(tagList []tagData) (genres, tags []string) {
+	for _, tag := range tagList {
+		name := ""
+		if n, ok := tag.Attributes.Name["en"]; ok {
+			name = n
+		}
+
+		if name == "" {
+			continue
+		}
+
+		switch tag.Attributes.Group {
+		case "genre":
+			genres = append(genres, name)
+		default:
+			tags = append(tags, name)
+		}
+	}
+
+	return genres, tags
 }
 
 // getTitle extracts the best title based on language preference.

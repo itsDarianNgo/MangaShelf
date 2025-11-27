@@ -11,6 +11,12 @@ type searchResponse struct {
 	Total    int         `json:"total"`
 }
 
+type mangaResponse struct {
+	Result   string    `json:"result"`
+	Response string    `json:"response"`
+	Data     mangaData `json:"data"`
+}
+
 type mangaData struct {
 	ID            string          `json:"id"`
 	Type          string          `json:"type"`
