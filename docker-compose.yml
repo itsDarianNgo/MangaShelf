@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  mangashelf:
+    build: .
+    image: mangashelf:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - MANGASHELF_LIBRARY_PATH=/data/manga
+      - MANGASHELF_DATABASE_PATH=/data/mangashelf.db
+      - TZ=UTC
+    command: ["--data", "/data"]
