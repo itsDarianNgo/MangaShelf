@@ -17,6 +17,8 @@ import (
 	"github.com/mangashelf/mangashelf/internal/api"
 	"github.com/mangashelf/mangashelf/internal/config"
 	"github.com/mangashelf/mangashelf/internal/database"
+	"github.com/mangashelf/mangashelf/internal/scraper"
+	"github.com/mangashelf/mangashelf/internal/scraper/mangadex"
 )
 
 var (
@@ -84,7 +86,10 @@ func run(cmd *cobra.Command, _ []string) error {
 	queries := database.New(db)
 	_ = queries
 
-	router := api.NewRouter(logger)
+	scraperMgr := scraper.NewManager(logger)
+	scraperMgr.Register(mangadex.New(cfg.Sources.Mangadex.Language))
+
+	router := api.NewRouter(logger, scraperMgr)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
 	srv := &http.Server{ //nolint:exhaustruct
