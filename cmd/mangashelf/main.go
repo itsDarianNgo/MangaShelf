@@ -16,6 +16,7 @@ import (
 
 	"github.com/mangashelf/mangashelf/internal/api"
 	"github.com/mangashelf/mangashelf/internal/config"
+	"github.com/mangashelf/mangashelf/internal/database"
 )
 
 var (
@@ -63,6 +64,25 @@ func run(cmd *cobra.Command, _ []string) error {
 
 	applyFlagOverrides(cmd, cfg)
 	logger := buildLogger(cfg)
+
+	if err := os.MkdirAll(filepath.Dir(cfg.Database.Path), 0o755); err != nil {
+		return fmt.Errorf("create data directory: %w", err)
+	}
+
+	db, err := database.Open(cfg.Database.Path)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
+	if err := database.Migrate(db); err != nil {
+		return fmt.Errorf("migrate database: %w", err)
+	}
+
+	logger.Info().Str("path", cfg.Database.Path).Msg("database initialized")
+
+	queries := database.New(db)
+	_ = queries
 
 	router := api.NewRouter(logger)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
