@@ -114,14 +114,114 @@ func (m *MangaDex) GetManga(ctx context.Context, id string) (*scraper.Manga, err
 
 // GetChapters fetches all chapters for a manga.
 func (m *MangaDex) GetChapters(ctx context.Context, mangaID string) ([]scraper.Chapter, error) {
-	// TODO: Implement in next task
-	return nil, fmt.Errorf("not implemented")
+	var allChapters []scraper.Chapter
+	offset := 0
+	limit := 100
+
+	for {
+		chapters, total, err := m.fetchChapterPage(ctx, mangaID, offset, limit)
+		if err != nil {
+			return nil, err
+		}
+
+		allChapters = append(allChapters, chapters...)
+		offset += limit
+
+		if offset >= total {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	return allChapters, nil
 }
 
 // GetPages fetches all page URLs for a chapter.
 func (m *MangaDex) GetPages(ctx context.Context, chapterID string) ([]scraper.Page, error) {
 	// TODO: Implement in next task
 	return nil, fmt.Errorf("not implemented")
+}
+
+// fetchChapterPage fetches a single page of chapters.
+func (m *MangaDex) fetchChapterPage(ctx context.Context, mangaID string, offset, limit int) ([]scraper.Chapter, int, error) {
+	endpoint := fmt.Sprintf(
+		"%s/manga/%s/feed?translatedLanguage[]=%s&order[chapter]=asc&limit=%d&offset=%d&includes[]=scanlation_group",
+		baseURL, url.PathEscape(mangaID), m.language, limit, offset,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, 0, scraper.ErrRateLimited
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var response chapterFeedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, 0, fmt.Errorf("decode response: %w", err)
+	}
+
+	chapters := m.convertChapters(response.Data)
+	return chapters, response.Total, nil
+}
+
+// convertChapters transforms API chapter data to scraper.Chapter slice.
+func (m *MangaDex) convertChapters(data []chapterData) []scraper.Chapter {
+	chapters := make([]scraper.Chapter, 0, len(data))
+
+	for _, ch := range data {
+		number := parseChapterNumber(ch.Attributes.Chapter)
+
+		title := ch.Attributes.Title
+		if title == "" {
+			title = fmt.Sprintf("Chapter %g", number)
+		}
+
+		var publishedAt time.Time
+		if ch.Attributes.PublishAt != "" {
+			publishedAt, _ = time.Parse(time.RFC3339, ch.Attributes.PublishAt)
+		}
+
+		chapters = append(chapters, scraper.Chapter{
+			ID:          ch.ID,
+			Title:       title,
+			Number:      number,
+			Volume:      ch.Attributes.Volume,
+			URL:         fmt.Sprintf("https://mangadex.org/chapter/%s", ch.ID),
+			PublishedAt: publishedAt,
+			PageCount:   ch.Attributes.Pages,
+		})
+	}
+
+	return chapters
+}
+
+// parseChapterNumber parses chapter number string to float64.
+func parseChapterNumber(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	var n float64
+	fmt.Sscanf(s, "%f", &n)
+	return n
 }
 
 // convertSearchResults transforms API response to scraper types.

@@ -54,3 +54,27 @@ type tagAttributes struct {
 	Name  map[string]string `json:"name"`
 	Group string            `json:"group"`
 }
+
+type chapterFeedResponse struct {
+	Result   string        `json:"result"`
+	Response string        `json:"response"`
+	Data     []chapterData `json:"data"`
+	Limit    int           `json:"limit"`
+	Offset   int           `json:"offset"`
+	Total    int           `json:"total"`
+}
+
+type chapterData struct {
+	ID         string            `json:"id"`
+	Type       string            `json:"type"`
+	Attributes chapterAttributes `json:"attributes"`
+}
+
+type chapterAttributes struct {
+	Volume             string `json:"volume"`
+	Chapter            string `json:"chapter"`
+	Title              string `json:"title"`
+	TranslatedLanguage string `json:"translatedLanguage"`
+	PublishAt          string `json:"publishAt"`
+	Pages              int    `json:"pages"`
+}
