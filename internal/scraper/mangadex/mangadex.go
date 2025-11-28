@@ -143,8 +143,38 @@ func (m *MangaDex) GetChapters(ctx context.Context, mangaID string) ([]scraper.C
 
 // GetPages fetches all page URLs for a chapter.
 func (m *MangaDex) GetPages(ctx context.Context, chapterID string) ([]scraper.Page, error) {
-	// TODO: Implement in next task
-	return nil, fmt.Errorf("not implemented")
+	endpoint := fmt.Sprintf("%s/at-home/server/%s", baseURL, url.PathEscape(chapterID))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, scraper.ErrChapterNotFound
+	}
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, scraper.ErrRateLimited
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var response atHomeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return m.convertPages(response), nil
 }
 
 // fetchChapterPage fetches a single page of chapters.
@@ -222,6 +252,23 @@ func parseChapterNumber(s string) float64 {
 	var n float64
 	fmt.Sscanf(s, "%f", &n)
 	return n
+}
+
+// convertPages transforms at-home response to scraper.Page slice.
+func (m *MangaDex) convertPages(resp atHomeResponse) []scraper.Page {
+	pages := make([]scraper.Page, 0, len(resp.Chapter.Data))
+
+	for i, filename := range resp.Chapter.Data {
+		pageURL := fmt.Sprintf("%s/data/%s/%s", resp.BaseURL, resp.Chapter.Hash, filename)
+
+		pages = append(pages, scraper.Page{
+			Index:    i + 1,
+			URL:      pageURL,
+			Filename: filename,
+		})
+	}
+
+	return pages
 }
 
 // convertSearchResults transforms API response to scraper types.

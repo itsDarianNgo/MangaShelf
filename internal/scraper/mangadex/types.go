@@ -78,3 +78,15 @@ type chapterAttributes struct {
 	PublishAt          string `json:"publishAt"`
 	Pages              int    `json:"pages"`
 }
+
+type atHomeResponse struct {
+	Result  string        `json:"result"`
+	BaseURL string        `json:"baseUrl"`
+	Chapter atHomeChapter `json:"chapter"`
+}
+
+type atHomeChapter struct {
+	Hash      string   `json:"hash"`
+	Data      []string `json:"data"`
+	DataSaver []string `json:"dataSaver"`
+}
